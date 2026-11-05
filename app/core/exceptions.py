@@ -15,3 +15,42 @@ class NotAMember(AppError):
 
 class InactiveMember(AppError):
     user_message = "비활성화된 회원입니다. 관리자에게 문의해 주세요."
+
+
+class AlreadyVerifiedToday(AppError):
+    user_message = "이미 오늘 인증했습니다. 내일 다시 인증해 주세요."
+
+
+class WrongChannel(AppError):
+    user_message = "인증 채널에서만 사용할 수 있습니다."
+
+
+# --- 입력 검증: 인증으로 저장하지 않고 안내만 한다 (REQUIREMENTS 3.3) ---
+
+
+class InvalidSubmission(AppError):
+    """사용자가 입력을 고쳐 다시 제출하면 되는 오류."""
+
+
+class EmptySubmission(InvalidSubmission):
+    user_message = "운동 내용이나 사진 중 하나 이상을 입력해 주세요."
+
+
+class TextTooShort(InvalidSubmission):
+    user_message = "운동 내용을 조금 더 자세히 적어 주세요."
+
+
+class UnsupportedImageFormat(InvalidSubmission):
+    user_message = "JPEG, PNG, WEBP 형식의 사진만 올릴 수 있습니다."
+
+
+class ImageTooLarge(InvalidSubmission):
+    user_message = "사진 용량이 너무 큽니다."
+
+    @classmethod
+    def for_limit(cls, max_bytes: int) -> "ImageTooLarge":
+        return cls(f"사진 용량이 너무 큽니다. {max_bytes / 1024 / 1024:g}MB 이하로 올려 주세요.")
+
+
+class ImageUnreadable(InvalidSubmission):
+    user_message = "사진을 불러오지 못했습니다. 다시 시도해 주세요."

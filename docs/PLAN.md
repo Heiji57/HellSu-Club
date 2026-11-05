@@ -17,12 +17,15 @@
 - 회원 등록, 재활성화, 비활성화
 - 같은 Discord ID 중복 방지
 
-## Phase 2. 인증과 출석
+## Phase 2. 인증과 출석 — ✅ 완료 (2026-11-05)
 - 모델: `verification`, `verification_review`, `attendance`, `club_policy`
 - `app/image`: 다운로드(크기 제한 스트리밍), 디코딩 검증, EXIF 제거, SHA-256, pHash, 저장
 - `VerificationService`(판정 규칙), `AttendanceService`(생성)
 - `/인증` 명령, 결과 Embed
 - 검토 대상이면 관리자 채널에 메시지만 게시(버튼은 Phase 4)
+- 계획 변경:
+  - `PolicyService`의 목표 조회와 초기 시드를 Phase 3에서 앞당겼다. 인증 결과에 "이번 주 N / 목표"를 보여주려면 필요하다.
+  - pHash를 numpy로 직접 구현하고 `imagehash`는 테스트에서 결과 비교용으로만 쓴다. Docker 이미지가 1.04GB에서 492MB로 줄었다.
 
 **완료 조건:** 텍스트나 이미지를 제출하면 DB에 저장된다. 규칙을 통과하면 출석이 생성되고, 중복 이미지는 REVIEW_REQUIRED가 된다.
 **테스트:**
@@ -33,7 +36,7 @@
 - 비활성 회원 차단
 
 ## Phase 3. 조회와 통계
-- `PolicyService`(주차별 목표 조회, 초기 목표 시드), `StatisticsService`
+- `StatisticsService` (`PolicyService`의 목표 조회·시드는 Phase 2에서 구현)
 - `/내출석`, `/내기록`(페이지네이션), `/랭킹`, `/목표`
 
 **완료 조건:** 회원이 자기 주간 현황, 이력, 전체 현황을 볼 수 있다.

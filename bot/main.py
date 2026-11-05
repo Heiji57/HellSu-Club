@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.database import Database
 from bot.commands.admin import AdminCommands
 from bot.commands.me import MeCommands
+from bot.commands.verification import VerificationCommands
 from bot.events.members import MemberEvents
 from bot.responses import GymCommandTree
 
@@ -38,12 +39,14 @@ class GymBot(commands.Bot):
 
     async def add_all_cogs(self) -> None:
         await self.add_cog(MemberEvents(self))
+        await self.add_cog(VerificationCommands(self))
         await self.add_cog(MeCommands(self))
         await self.add_cog(AdminCommands(self))
 
     async def setup_hook(self) -> None:
         # DB에 연결할 수 없으면 바로 종료한다(컨테이너가 재시작).
         await self.services.db.ping()
+        await self.services.policies.ensure_initial()
         await self.add_all_cogs()
 
         guild = discord.Object(id=self.services.settings.guild_id)
@@ -51,6 +54,10 @@ class GymBot(commands.Bot):
         synced = await self.tree.sync(guild=guild)
         log.info("길드 명령어 %d개 동기화: %s", len(synced), ", ".join(c.name for c in synced))
         self.started_at = datetime.now(UTC)
+
+    async def close(self) -> None:
+        await self.services.aclose()
+        await super().close()
 
     async def on_ready(self) -> None:
         log.info("로그인: %s (id=%s)", self.user, self.user.id if self.user else "?")

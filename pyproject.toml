@@ -11,10 +11,14 @@ dependencies = [
     "alembic>=1.14",
     "pydantic-settings>=2.6",
     "tzdata>=2024.1",
+    "pillow>=11",
+    "aiohttp>=3.9",
+    "numpy>=2",
 ]
 
 [dependency-groups]
 dev = [
+    "imagehash>=4.3",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "ruff>=0.8",
@@ -30,6 +34,10 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "integration: 실제 PostgreSQL이 필요한 테스트",
+]
+filterwarnings = [
+    # discord.py가 음성 기능용으로 import하는 모듈. 이 봇은 음성을 쓰지 않는다.
+    "ignore:'audioop' is deprecated:DeprecationWarning:discord.player",
 ]
 
 [tool.ruff]

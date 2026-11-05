@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from app.core.clock import Clock
 from app.core.config import Settings
 from app.core.database import Database
+from app.image.fetcher import HttpImageFetcher, ImageFetcher
+from app.image.storage import ImageStorage
+from app.services.attendance_service import AttendanceService
 from app.services.member_service import MemberService
+from app.services.policy_service import PolicyService
+from app.services.verification_service import VerificationService
 
 
 @dataclass(frozen=True)
@@ -13,13 +18,48 @@ class Services:
     settings: Settings
     db: Database
     clock: Clock
+    fetcher: ImageFetcher
+    storage: ImageStorage
     members: MemberService
+    policies: PolicyService
+    attendance: AttendanceService
+    verifications: VerificationService
 
     @classmethod
-    def build(cls, settings: Settings, db: Database, clock: Clock) -> "Services":
+    def build(
+        cls,
+        settings: Settings,
+        db: Database,
+        clock: Clock,
+        *,
+        fetcher: ImageFetcher | None = None,
+    ) -> "Services":
+        fetcher = fetcher or HttpImageFetcher()
+        storage = ImageStorage(settings.image_dir)
+        attendance = AttendanceService(db)
         return cls(
             settings=settings,
             db=db,
             clock=clock,
+            fetcher=fetcher,
+            storage=storage,
             members=MemberService(db, clock),
+            policies=PolicyService(db, clock, initial_weekly_target=settings.initial_weekly_target),
+            attendance=attendance,
+            verifications=VerificationService(
+                db,
+                clock,
+                attendance=attendance,
+                fetcher=fetcher,
+                storage=storage,
+                text_min_length=settings.text_min_length,
+                image_max_bytes=settings.image_max_bytes,
+                phash_threshold=settings.phash_distance_threshold,
+                default_weekly_target=settings.initial_weekly_target,
+            ),
         )
+
+    async def aclose(self) -> None:
+        close = getattr(self.fetcher, "aclose", None)
+        if close is not None:
+            await close()

@@ -1,6 +1,6 @@
 """Discord 연결 없이 확인할 수 있는 봇 계층 테스트: 명령어 등록 형태, 오류 메시지, 표시 형식."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -9,26 +9,19 @@ from sqlalchemy.exc import OperationalError
 
 from app.container import Services
 from app.core.clock import FixedClock
-from app.core.config import Settings
 from app.core.database import Database
 from app.core.exceptions import InactiveMember
+from app.models import VerificationStatus
+from app.repositories.verification import VerificationRef
+from app.services.verification_service import DuplicateMatch, SubmissionResult
 from bot.checks import AdminOnly
 from bot.commands.admin import format_duration
+from bot.embeds.common import format_day, progress_bar
 from bot.embeds.help import help_embed
+from bot.embeds.verification import review_request_embed, submission_embed
 from bot.main import GymBot
 from bot.responses import DB_ERROR, GENERIC_ERROR, user_message_for
-
-
-def make_settings() -> Settings:
-    return Settings(
-        discord_token="test-token",
-        guild_id=1,
-        member_role_id=10,
-        admin_role_id=20,
-        admin_channel_id=100,
-        report_channel_id=200,
-        database_url="postgresql+asyncpg://u:p@localhost:1/none",
-    )
+from tests.fakes import make_settings
 
 
 @pytest.fixture
@@ -39,13 +32,22 @@ async def bot():
     b = GymBot(services)
     await b.add_all_cogs()
     yield b
+    await services.aclose()
     await db.dispose()
 
 
 class TestCommandTree:
     async def test_registers_expected_commands(self, bot):
         names = {c.name for c in bot.tree.get_commands()}
-        assert names == {"도움말", "관리"}
+        assert names == {"인증", "도움말", "관리"}
+
+    async def test_verify_options(self, bot):
+        payload = bot.tree.get_command("인증").to_dict(bot.tree)
+        options = {o["name"]: o for o in payload["options"]}
+        assert list(options) == ["내용", "사진"]
+        assert not any(o.get("required") for o in options.values())
+        assert options["내용"]["max_length"] == 1000
+        assert options["사진"]["type"] == 11  # ATTACHMENT
 
     async def test_admin_group_is_hidden_and_guild_only(self, bot):
         group = bot.tree.get_command("관리")
@@ -98,3 +100,65 @@ class TestPresentation:
     )
     def test_format_duration(self, seconds, expected):
         assert format_duration(seconds) == expected
+
+
+def result(status=VerificationStatus.APPROVED, count=1, target=3, matches=()) -> SubmissionResult:
+    return SubmissionResult(
+        verification_id=42,
+        status=status,
+        workout_date=date(2026, 11, 4),
+        reason="이전에 제출된 사진과 같은 파일입니다 (인증 #7).",
+        content="스쿼트 5세트",
+        week_count=count,
+        week_target=target,
+        matches=matches,
+    )
+
+
+class TestVerificationEmbeds:
+    @pytest.mark.parametrize(
+        ("count", "target", "expected"),
+        [(0, 3, "⬜⬜⬜"), (2, 3, "🟩🟩⬜"), (3, 3, "🟩🟩🟩"), (5, 3, "🟩🟩🟩 +2")],
+    )
+    def test_progress_bar(self, count, target, expected):
+        assert progress_bar(count, target) == expected
+
+    def test_format_day(self):
+        assert format_day(date(2026, 11, 8)) == "11월 8일 (일)"
+
+    def test_approved(self):
+        embed = submission_embed(result(count=2))
+        assert embed.title == "✅ 인증 완료"
+        assert embed.description is None
+        assert "2 / 3회 (남은 횟수 1회)" in embed.fields[1].value
+
+    def test_goal_achieved(self):
+        assert "목표를 달성" in submission_embed(result(count=3)).description
+
+    def test_review_does_not_reveal_other_members(self):
+        match = DuplicateMatch(
+            7, 0, True, VerificationRef(7, "영희", date(2026, 11, 3), "APPROVED", None)
+        )
+        embed = submission_embed(result(VerificationStatus.REVIEW_REQUIRED, 0, matches=(match,)))
+        assert embed.title == "⏳ 관리자 확인 중"
+        text = str(embed.to_dict())
+        assert "영희" not in text and "#7" not in text
+
+    def test_review_request_for_admins(self):
+        ref = VerificationRef(7, "영희", date(2026, 11, 3), "APPROVED", 999)
+        embed = review_request_embed(
+            result(
+                VerificationStatus.REVIEW_REQUIRED, 0, matches=(DuplicateMatch(7, 0, True, ref),)
+            ),
+            member=SimpleNamespace(mention="<@1001>", display_name="철수"),
+            submitted_at=datetime(2026, 11, 4, 3, 0, tzinfo=UTC),
+            guild_id=1,
+            admin_channel_id=100,
+            image_url="attachment://verification-42.jpg",
+        )
+        fields = {f.name: f.value for f in embed.fields}
+        assert fields["제출 시각"] == "11월 4일 (수) 12:00"
+        assert fields["내용"] == "스쿼트 5세트"
+        assert "#7 · 완전 일치 · 영희 · 11월 3일 (화) · 승인" in fields["일치한 기존 인증"]
+        assert "https://discord.com/channels/1/100/999" in fields["일치한 기존 인증"]
+        assert embed.image.url == "attachment://verification-42.jpg"

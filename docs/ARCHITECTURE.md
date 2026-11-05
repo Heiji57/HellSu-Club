@@ -40,6 +40,7 @@ bot/
     pagination_view.py
     confirm_view.py      # 이번 주 목표 변경 확인
   embeds/
+    common.py            # 날짜 표시, 진행 막대
     verification.py
     statistics.py
   events/
@@ -53,7 +54,7 @@ app/
   repositories/  member.py verification.py attendance.py policy.py audit.py report.py
   services/  member_service.py verification_service.py attendance_service.py
              review_service.py policy_service.py statistics_service.py report_service.py
-  image/     processor.py hashing.py storage.py
+  image/     fetcher.py processor.py hashing.py storage.py
 migrations/
 tests/
   unit/          # 시간 계산, 해시, 판정 규칙, 이미지 검증
@@ -166,7 +167,8 @@ erDiagram
 ### 3.3 불변성
 
 - `verification`의 원본 필드는 INSERT 이후 변경하지 않는다. 대상: `content`, `submitted_at`, `workout_date`, 해시.
-  - 예외는 이미지 정리 시 `image_path`를 NULL로 바꾸는 것뿐이다.
+  - 예외는 `image_path`뿐이다. 커밋 후 파일을 저장하면 경로를 기록하고, 이미지 정리 시 NULL로 바꾼다.
+  - `image_path`는 `IMAGE_DIR` 기준 상대 경로다.
 - `verification.status`는 현재 상태를 담는 캐시다. 모든 변경은 `verification_review`에 이력으로 남긴다.
 - `verification_review`, `audit_log`, `club_policy`는 INSERT만 한다.
 
@@ -260,7 +262,7 @@ sequenceDiagram
 | 런타임 | Python 3.12+, uv(패키지 관리) |
 | Discord | discord.py 2.x |
 | DB | PostgreSQL 17, SQLAlchemy 2.x async, asyncpg, Alembic |
-| 이미지 | Pillow, imagehash |
+| 이미지 | Pillow, numpy (pHash는 imagehash와 같은 알고리즘을 직접 구현. scipy 의존성을 빼서 이미지 크기를 절반으로 줄임. 결과가 같은지는 테스트로 확인) |
 | 설정 | pydantic-settings |
 | 주기 작업 | `discord.ext.tasks` (APScheduler 미사용, ADR-0002) |
 | 테스트 | pytest, pytest-asyncio, docker compose의 실제 PostgreSQL |
