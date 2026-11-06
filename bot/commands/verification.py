@@ -18,7 +18,9 @@ from app.services.verification_service import (
 )
 from bot.checks import ensure_member
 from bot.embeds.verification import review_request_embed, submission_embed
+from bot.notify import deliver_notices
 from bot.responses import send_private
+from bot.views.review_view import review_view
 
 if TYPE_CHECKING:
     from bot.main import GymBot
@@ -70,6 +72,7 @@ class VerificationCommands(commands.Cog):
         await send_private(interaction, embed=submission_embed(result))
         if not result.approved:
             await self._post_review_request(interaction, result, photo)
+        await deliver_notices(interaction)
 
     async def _post_review_request(
         self,
@@ -104,6 +107,7 @@ class VerificationCommands(commands.Cog):
                 admin_channel_id=settings.admin_channel_id,
                 image_url=image_url,
             )
+            kwargs["view"] = review_view(result.verification_id, result.status)
             message = await channel.send(**kwargs)
         except discord.HTTPException:
             log.warning("인증 #%d 검토 요청 게시 실패", result.verification_id, exc_info=True)

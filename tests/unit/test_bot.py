@@ -64,7 +64,22 @@ class TestCommandTree:
         assert isinstance(group, app_commands.Group)
         assert group.guild_only
         assert group.default_permissions is not None and group.default_permissions.manage_guild
-        assert {c.name for c in group.commands} == {"시스템상태"}
+        assert {c.name for c in group.commands} == {
+            "회원목록",
+            "검토목록",
+            "인증상세",
+            "출석취소",
+            "목표설정",
+            "시스템상태",
+        }
+
+    async def test_target_options(self, bot):
+        group = bot.tree.get_command("관리")
+        payload = group.get_command("목표설정").to_dict(bot.tree)
+        options = {o["name"]: o for o in payload["options"]}
+        assert (options["횟수"]["min_value"], options["횟수"]["max_value"]) == (1, 7)
+        assert [c["value"] for c in options["적용"]["choices"]] == ["다음주", "이번주"]
+        assert not options["적용"].get("required")
 
     async def test_payloads_serialize(self, bot):
         # Discord로 보낼 형식으로 직렬화되는지(한글 이름 포함) 확인
@@ -97,6 +112,10 @@ class TestUserMessage:
 
 
 class TestPresentation:
+    def test_help_fields_fit_discord_limits(self):
+        for field in help_embed(include_admin=True).fields:
+            assert len(field.value) <= 1024
+
     def test_help_hides_admin_section_for_members(self):
         assert [f.name for f in help_embed(include_admin=False).fields] == ["회원 명령어"]
         assert [f.name for f in help_embed(include_admin=True).fields] == [

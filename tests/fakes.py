@@ -48,12 +48,15 @@ class FakeFetcher:
 
 
 class FakeMessage:
-    def __init__(self, message_id: int) -> None:
+    def __init__(self, message_id: int, embeds: list | None = None) -> None:
         self.id = message_id
+        self.embeds = embeds or []
         self.edits: list[dict] = []
 
     async def edit(self, **kwargs) -> None:
         self.edits.append(kwargs)
+        if kwargs.get("embed") is not None:
+            self.embeds = [kwargs["embed"]]
 
 
 class FakeResponse:
@@ -75,6 +78,10 @@ class FakeResponse:
     async def edit_message(self, **kwargs) -> None:
         self.edited.append(kwargs)
 
+    async def send_modal(self, modal) -> None:
+        self.modal = modal
+        self.sent.append({"modal": modal})
+
 
 class FakeFollowup:
     def __init__(self) -> None:
@@ -88,13 +95,20 @@ class FakeFollowup:
 class FakeChannel(discord.abc.Messageable):
     def __init__(self) -> None:
         self.sent: list[dict] = []
+        self.messages: dict[int, FakeMessage] = {}
 
     async def _get_channel(self):  # Messageable 추상 메서드
         return self
 
     async def send(self, **kwargs) -> FakeMessage:
         self.sent.append(kwargs)
-        return FakeMessage(555_000 + len(self.sent))
+        embed = kwargs.get("embed")
+        message = FakeMessage(555_000 + len(self.sent), [embed] if embed else [])
+        self.messages[message.id] = message
+        return message
+
+    async def fetch_message(self, message_id: int) -> FakeMessage:
+        return self.messages[message_id]
 
 
 _interaction_ids = itertools.count(50_000)

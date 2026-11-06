@@ -16,6 +16,7 @@ from bot.commands.me import MeCommands
 from bot.commands.verification import VerificationCommands
 from bot.events.members import MemberEvents
 from bot.responses import GymCommandTree
+from bot.views.review_view import ReviewButton
 
 log = logging.getLogger("bot")
 
@@ -48,6 +49,8 @@ class GymBot(commands.Bot):
         await self.services.db.ping()
         await self.services.policies.ensure_initial()
         await self.add_all_cogs()
+        # 재시작 전에 게시한 검토 메시지의 버튼도 동작하게 한다 (Persistent View)
+        self.add_dynamic_items(ReviewButton)
 
         guild = discord.Object(id=self.services.settings.guild_id)
         self.tree.copy_global_to(guild=guild)

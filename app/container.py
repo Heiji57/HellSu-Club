@@ -7,7 +7,9 @@ from app.image.fetcher import HttpImageFetcher, ImageFetcher
 from app.image.storage import ImageStorage
 from app.services.attendance_service import AttendanceService
 from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.policy_service import PolicyService
+from app.services.review_service import ReviewService
 from app.services.statistics_service import StatisticsService
 from app.services.verification_service import VerificationService
 
@@ -26,6 +28,8 @@ class Services:
     attendance: AttendanceService
     verifications: VerificationService
     statistics: StatisticsService
+    reviews: ReviewService
+    notifications: NotificationService
 
     @classmethod
     def build(
@@ -62,6 +66,8 @@ class Services:
             statistics=StatisticsService(
                 db, clock, default_weekly_target=settings.initial_weekly_target
             ),
+            reviews=ReviewService(db, clock, attendance=attendance, storage=storage),
+            notifications=NotificationService(db, clock),
         )
 
     async def aclose(self) -> None:

@@ -35,7 +35,7 @@ bot/
     me.py                # /내출석 /내기록 /랭킹 /목표 /도움말
     admin.py             # /관리 그룹
   views/
-    review_view.py       # Persistent 승인/거절/상세 버튼 + 사유 모달
+    review_view.py       # 승인/거절/출석취소/상세 버튼(DynamicItem, 재시작 후에도 동작) + 사유 모달
     pagination_view.py
     confirm_view.py      # 이번 주 목표 변경 확인
   embeds/
@@ -52,7 +52,8 @@ app/
   models/    base.py member.py verification.py attendance.py policy.py audit.py report.py
   repositories/  member.py verification.py attendance.py policy.py audit.py report.py
   services/  member_service.py verification_service.py attendance_service.py
-             review_service.py policy_service.py statistics_service.py report_service.py
+             review_service.py policy_service.py statistics_service.py
+             notification_service.py report_service.py
   image/     fetcher.py processor.py hashing.py storage.py
 migrations/
 tests/
@@ -235,7 +236,7 @@ sequenceDiagram
 모든 회원 명령은 응답 후 `bot/notify.py`를 호출한다. 이 헬퍼는 다음을 처리한다.
 - `status <> 'REVIEW_REQUIRED' AND result_notified_at IS NULL`인 본인 인증을 찾는다.
 - 찾은 결과를 ephemeral followup으로 보낸다.
-- 보낸 뒤 `result_notified_at`을 기록한다.
+- 보내기 전에 조건부 UPDATE로 `result_notified_at`을 먼저 기록(선점)한다. 동시에 명령을 여러 번 실행해도 한 번만 전달된다.
 
 ### 4.4 주기 작업
 

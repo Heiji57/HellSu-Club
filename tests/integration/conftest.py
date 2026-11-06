@@ -6,7 +6,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import asyncpg
@@ -14,13 +14,24 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
 from app.container import Services
 from app.core.clock import FixedClock
 from app.core.database import Database
+from app.core.week import KST
+from app.models import (
+    Attendance,
+    AttendanceStatus,
+    ReviewDecision,
+    ReviewerType,
+    Verification,
+    VerificationReview,
+    VerificationStatus,
+)
+from app.repositories.policy import PolicyRepository
 from tests.fakes import FakeChannel, FakeFetcher, make_settings
 
 
@@ -122,3 +133,107 @@ def bot_env(db, clock, tmp_path, monkeypatch):
     monkeypatch.setattr("bot.checks.is_admin", lambda i: env.admin)
     monkeypatch.setattr("bot.commands.me.is_admin", lambda i: env.admin)
     return env
+
+
+# --- 시나리오 도우미: 고정 시각 2026-11-04(수) 12:00 KST, 이번 주는 11/2(월) ~ 11/8(일) ---
+
+NOW = datetime(2026, 11, 4, 12, 0, tzinfo=KST)
+LONG_AGO = datetime(2026, 10, 1, 12, 0, tzinfo=KST)
+
+
+def kst(month: int, day: int, hour: int = 12) -> datetime:
+    return datetime(2026, month, day, hour, tzinfo=KST)
+
+
+@pytest.fixture
+def services(db, clock, tmp_path) -> Services:
+    settings = make_settings().model_copy(
+        update={"image_dir": str(tmp_path), "initial_weekly_target": 3}
+    )
+    return Services.build(settings, db, clock, fetcher=FakeFetcher())
+
+
+class Club:
+    """테스트 시나리오를 만드는 도우미. 시각을 옮겨 가입·탈퇴·인증 시점을 정한다."""
+
+    def __init__(self, services: Services, clock) -> None:
+        self.s = services
+        self.clock = clock
+        self._ids = iter(range(70_000, 80_000))
+
+    async def join(self, user_id: int, name: str, at: datetime = LONG_AGO) -> None:
+        self.clock.set(at)
+        await self.s.members.sync(user_id, name, has_member_role=True)
+        self.clock.set(NOW)
+
+    async def leave(self, user_id: int, at: datetime) -> None:
+        self.clock.set(at)
+        await self.s.members.deactivate(user_id, reason="서버 탈퇴")
+        self.clock.set(NOW)
+
+    async def verify(self, user_id: int, at: datetime, *, image: bytes | None = None, **kw):
+        from app.services.verification_service import Submission
+
+        attachment = self.s.fetcher.add(image) if image is not None else None
+        return await self.s.verifications.submit(
+            Submission(
+                discord_user_id=user_id,
+                interaction_id=next(self._ids),
+                channel_id=1,
+                submitted_at=at,
+                content=kw.get("content", "스쿼트 5세트, 런지 3세트"),
+                attachment=attachment,
+            )
+        )
+
+    async def revoke(self, verification_id: int, reason: str) -> None:
+        """관리자 출석 취소(Phase 4)를 흉내 낸다."""
+        async with self.s.db.transaction() as s:
+            await s.execute(
+                update(Attendance)
+                .where(Attendance.verification_id == verification_id)
+                .values(status=AttendanceStatus.REVOKED, revoked_at=NOW)
+            )
+            await s.execute(
+                update(Verification)
+                .where(Verification.id == verification_id)
+                .values(status=VerificationStatus.REJECTED)
+            )
+            s.add(
+                VerificationReview(
+                    verification_id=verification_id,
+                    reviewer_type=ReviewerType.ADMIN,
+                    actor_discord_id=1,
+                    decision=ReviewDecision.REVOKE,
+                    reason=reason,
+                )
+            )
+
+    async def reject(self, verification_id: int, reason: str) -> None:
+        async with self.s.db.transaction() as s:
+            await s.execute(
+                update(Verification)
+                .where(Verification.id == verification_id)
+                .values(status=VerificationStatus.REJECTED, decided_at=NOW)
+            )
+            s.add(
+                VerificationReview(
+                    verification_id=verification_id,
+                    reviewer_type=ReviewerType.ADMIN,
+                    actor_discord_id=1,
+                    decision=ReviewDecision.REJECT,
+                    reason=reason,
+                )
+            )
+
+    async def add_policy(self, target: int, effective_from: date) -> None:
+        async with self.s.db.transaction() as s:
+            await PolicyRepository(s).add(
+                weekly_target=target, effective_from=effective_from, created_by_discord_id=1
+            )
+
+
+@pytest.fixture
+async def club(services, clock) -> Club:
+    clock.set(NOW)
+    return Club(services, clock)

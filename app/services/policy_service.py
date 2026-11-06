@@ -1,7 +1,7 @@
 """주간 목표 정책.
 
-목표 조회, 초기 시드, /목표 안내를 제공한다.
-목표 변경(이번 주/다음 주 적용)은 Phase 4의 관리자 명령에서 추가한다.
+목표 조회, 초기 시드, /목표 안내, 목표 변경을 제공한다.
+정책은 INSERT만 한다. 지난 주의 목표는 바뀌지 않는다 (REQUIREMENTS 6.3).
 """
 
 import logging
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import Clock
 from app.core.database import Database
 from app.core.week import Week, to_kst_date
+from app.repositories.audit import AuditRepository
 from app.repositories.policy import PolicyRepository
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,41 @@ class PolicyService:
             this_target = await target_for_week(s, this_week, self._initial)
             next_target = await target_for_week(s, next_week, self._initial)
         return TargetOverview(this_week, this_target, next_week, next_target)
+
+    async def set_target(
+        self, weekly_target: int, *, this_week: bool, actor_discord_id: int
+    ) -> Week:
+        """목표를 바꾸고 적용 주를 반환한다.
+
+        기본은 다음 주 월요일부터, this_week면 이번 주 월요일부터 적용한다.
+        """
+        if not 1 <= weekly_target <= 7:
+            raise ValueError("주간 목표는 1~7회입니다")
+        week = Week.of(self.today())
+        if not this_week:
+            week = week.next()
+        async with self._db.transaction() as s:
+            previous = await target_for_week(s, week, self._initial)
+            policy = await PolicyRepository(s).add(
+                weekly_target=weekly_target,
+                effective_from=week.start,
+                created_by_discord_id=actor_discord_id,
+            )
+            await AuditRepository(s).record(
+                actor_discord_id=actor_discord_id,
+                action="POLICY_CHANGED",
+                target_type="club_policy",
+                target_id=policy.id,
+                details={
+                    "weekly_target": weekly_target,
+                    "previous_target": previous,
+                    "effective_from": week.start.isoformat(),
+                },
+            )
+        log.info(
+            "주간 목표 %d회로 변경 (%s부터, by %s)", weekly_target, week.start, actor_discord_id
+        )
+        return week
 
     def today(self) -> date:
         return to_kst_date(self._clock.now())

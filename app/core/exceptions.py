@@ -54,3 +54,20 @@ class ImageTooLarge(InvalidSubmission):
 
 class ImageUnreadable(InvalidSubmission):
     user_message = "사진을 불러오지 못했습니다. 다시 시도해 주세요."
+
+
+# --- 관리자 처리 (REQUIREMENTS 6) ---
+
+
+class VerificationNotFound(AppError):
+    user_message = "해당 번호의 인증을 찾을 수 없습니다."
+
+
+class AlreadyProcessed(AppError):
+    """조건부 UPDATE가 0행: 다른 관리자가 먼저 처리했거나 상태가 맞지 않는다."""
+
+    user_message = "이미 처리된 인증입니다."
+
+
+class ReasonRequired(AppError):
+    user_message = "사유를 입력해 주세요."

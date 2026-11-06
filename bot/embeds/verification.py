@@ -66,7 +66,7 @@ def review_request_embed(
         embed.add_field(name="일치한 기존 인증", value=value, inline=False)
     if image_url:
         embed.set_image(url=image_url)
-    embed.set_footer(text="승인·거절 버튼은 관리자 기능 업데이트 후 제공됩니다.")
+    embed.set_footer(text=f"인증 #{result.verification_id}")
     return embed
 
 

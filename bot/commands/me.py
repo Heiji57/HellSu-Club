@@ -11,6 +11,7 @@ from discord.ext import commands
 from bot.checks import ensure_member, is_admin
 from bot.embeds.help import help_embed
 from bot.embeds.statistics import history_embed, my_week_embed, ranking_embed, target_embed
+from bot.notify import deliver_notices
 from bot.responses import send_private
 from bot.views.pagination_view import PaginationView
 
@@ -31,6 +32,7 @@ class MeCommands(commands.Cog):
         await ensure_member(interaction)
         data = await self.bot.services.statistics.my_week(interaction.user.id)
         await send_private(interaction, embed=my_week_embed(data))
+        await deliver_notices(interaction)
 
     @app_commands.command(name="내기록", description="내 인증 기록을 봅니다.")
     @app_commands.guild_only()
@@ -51,11 +53,12 @@ class MeCommands(commands.Cog):
         embed, current, total_pages = await render(page)
         if total_pages <= 1:
             await send_private(interaction, embed=embed)
-            return
-        view = PaginationView(
-            owner_id=user_id, page=current, total_pages=total_pages, render=render
-        )
-        view.message = await send_private(interaction, embed=embed, view=view)
+        else:
+            view = PaginationView(
+                owner_id=user_id, page=current, total_pages=total_pages, render=render
+            )
+            view.message = await send_private(interaction, embed=embed, view=view)
+        await deliver_notices(interaction)
 
     @app_commands.command(name="랭킹", description="이번 주 전체 회원의 출석 현황을 봅니다.")
     @app_commands.guild_only()
@@ -64,6 +67,7 @@ class MeCommands(commands.Cog):
         await ensure_member(interaction, allow_admin=True)
         stats = await self.bot.services.statistics.week_stats()
         await send_private(interaction, embed=ranking_embed(stats, viewer_id=interaction.user.id))
+        await deliver_notices(interaction)
 
     @app_commands.command(name="목표", description="이번 주와 다음 주 출석 목표를 봅니다.")
     @app_commands.guild_only()
@@ -72,8 +76,10 @@ class MeCommands(commands.Cog):
         await ensure_member(interaction, allow_admin=True)
         overview = await self.bot.services.policies.overview()
         await send_private(interaction, embed=target_embed(overview))
+        await deliver_notices(interaction)
 
     @app_commands.command(name="도움말", description="헬스클럽 봇 사용법을 안내합니다.")
     @app_commands.guild_only()
     async def help(self, interaction: discord.Interaction) -> None:
         await send_private(interaction, embed=help_embed(include_admin=is_admin(interaction)))
+        await deliver_notices(interaction)
