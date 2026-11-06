@@ -1,0 +1,48 @@
+[project]
+name = "gym-attendance"
+version = "0.1.0"
+description = "헬스클럽 Discord 자동 출석 관리 봇"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "discord.py>=2.5,<3",
+    "sqlalchemy[asyncio]>=2.0.36,<2.1",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pydantic-settings>=2.6",
+    "tzdata>=2024.1",
+    "pillow>=11",
+    "aiohttp>=3.9",
+    "numpy>=2",
+]
+
+[dependency-groups]
+dev = [
+    "imagehash>=4.3",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: 실제 PostgreSQL이 필요한 테스트",
+]
+filterwarnings = [
+    # discord.py가 음성 기능용으로 import하는 모듈. 이 봇은 음성을 쓰지 않는다.
+    "ignore:'audioop' is deprecated:DeprecationWarning:discord.player",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
