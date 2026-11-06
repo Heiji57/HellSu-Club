@@ -10,12 +10,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from app.services.report_service import PublishStatus, ReportSnapshot
 from app.services.review_service import MAX_REASON_LENGTH
 from bot import checks
 from bot.checks import AdminOnly
+from bot.embeds.common import format_day, format_time, message_link
+from bot.embeds.report import report_embed
 from bot.embeds.review import members_embed, pending_embed
 from bot.embeds.statistics import week_range
 from bot.responses import send_private
+from bot.tasks.weekly_report import post_report
 from bot.views.confirm_view import ConfirmView
 from bot.views.review_view import ReviewButton, apply_action, refresh_review_message, send_detail
 
@@ -157,31 +161,96 @@ class AdminCommands(commands.Cog):
         view = ConfirmView(owner_id=actor, on_confirm=confirm)
         view.message = await send_private(interaction, embed=embed, view=view)
 
-    @admin.command(name="시스템상태", description="봇과 데이터베이스 상태를 확인합니다.")
+    @admin.command(name="주간통계", description="주간 출석 통계를 봅니다.")
+    @app_commands.rename(which="주")
+    @app_commands.describe(which="볼 주 (기본: 이번 주)")
+    async def week_stats(
+        self, interaction: discord.Interaction, which: Literal["이번주", "지난주"] = "이번주"
+    ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        statistics = self.bot.services.statistics
+        week = statistics.current_week()
+        if which == "지난주":
+            week = week.previous()
+        stats = await statistics.week_stats(week)
+        embed = report_embed(ReportSnapshot.from_stats(stats), title="📈 주간 통계")
+        embed.set_footer(text=f"실시간 집계 · 검토 대기 {stats.pending_reviews}건")
+        await send_private(interaction, embed=embed)
+
+    @admin.command(name="주간리포트", description="지난주 리포트를 미리 보거나 지금 게시합니다.")
+    @app_commands.rename(publish="게시")
+    @app_commands.describe(publish="아직 게시되지 않았다면 리포트 채널에 지금 게시")
+    async def weekly_report(self, interaction: discord.Interaction, publish: bool = False) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        reports = self.bot.services.reports
+        week = reports.due_week()
+        settings = self.bot.services.settings
+
+        if publish:
+            result = await reports.publish(
+                week,
+                lambda snapshot: post_report(self.bot, snapshot),
+                actor_discord_id=interaction.user.id,
+            )
+            text = {
+                PublishStatus.POSTED: f"<#{settings.report_channel_id}>에 게시했습니다.",
+                PublishStatus.ALREADY_POSTED: "이미 게시된 리포트입니다.",
+                PublishStatus.NO_MEMBERS: "집계 대상 회원이 없어 게시하지 않았습니다.",
+                PublishStatus.NOT_DUE: "아직 게시할 주가 아닙니다.",
+            }[result.status]
+            await send_private(interaction, text)
+            return
+
+        preview = await reports.preview(week)
+        embed = report_embed(preview.snapshot)
+        if preview.posted_at is not None and preview.message_id and preview.channel_id:
+            link = message_link(settings.guild_id, preview.channel_id, preview.message_id)
+            content = f"✅ 게시됨 · {format_time(preview.posted_at)} · [메시지]({link})"
+        else:
+            content = "⏳ 아직 게시되지 않았습니다. 미리보기는 지금 집계한 결과입니다."
+        await send_private(interaction, content, embed=embed)
+
+    @admin.command(
+        name="시스템상태", description="봇, 데이터베이스, 리포트, 이미지 저장소 상태를 봅니다."
+    )
     async def system_status(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         services = self.bot.services
 
-        db_ok = True
-        try:
-            db_ms = await services.db.ping()
-            active = await services.members.count_active()
-            db_line = f"🟢 정상 ({db_ms:.0f}ms)"
-        except Exception:
-            log.exception("DB 상태 확인 실패")
-            db_ok = False
-            active = None
-            db_line = "🔴 연결 실패"
-
-        embed = discord.Embed(
-            title="시스템 상태",
-            color=discord.Color.green() if db_ok else discord.Color.red(),
-            timestamp=datetime.now(UTC),
-        )
+        embed = discord.Embed(title="시스템 상태", timestamp=datetime.now(UTC))
         embed.add_field(name="봇 지연", value=f"{self.bot.latency * 1000:.0f}ms")
-        embed.add_field(name="데이터베이스", value=db_line)
         if self.bot.started_at is not None:
             uptime = (datetime.now(UTC) - self.bot.started_at).total_seconds()
             embed.add_field(name="가동 시간", value=format_duration(uptime))
-        embed.add_field(name="활성 회원", value="-" if active is None else f"{active}명")
+
+        db_ok = True
+        try:
+            db_ms = await services.db.ping()
+            embed.add_field(name="데이터베이스", value=f"🟢 정상 ({db_ms:.0f}ms)")
+            embed.add_field(name="활성 회원", value=f"{await services.members.count_active()}명")
+            _, pending = await services.reviews.list_pending(limit=1)
+            embed.add_field(name="검토 대기", value=f"{pending}건")
+            week = services.reports.due_week()
+            posted = await services.reports.is_posted(week)
+            embed.add_field(
+                name="최근 리포트",
+                value=f"{format_day(week.start)} 주 · {'✅ 게시됨' if posted else '⏳ 미게시'}",
+            )
+        except Exception:
+            log.exception("DB 상태 확인 실패")
+            db_ok = False
+            embed.add_field(name="데이터베이스", value="🔴 연결 실패")
+
+        try:
+            files, size = await services.storage.usage()
+            embed.add_field(
+                name="이미지 저장소",
+                value=f"{files}개 · {size / 1024 / 1024:.1f}MB "
+                f"(보관 {services.settings.image_retention_days}일)",
+            )
+        except OSError:
+            log.exception("이미지 저장소 확인 실패")
+            embed.add_field(name="이미지 저장소", value="🔴 확인 실패")
+
+        embed.color = discord.Color.green() if db_ok else discord.Color.red()
         await send_private(interaction, embed=embed)

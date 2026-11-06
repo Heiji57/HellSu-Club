@@ -16,6 +16,8 @@ from bot.commands.me import MeCommands
 from bot.commands.verification import VerificationCommands
 from bot.events.members import MemberEvents
 from bot.responses import GymCommandTree
+from bot.tasks.image_cleanup import ImageCleanupTask
+from bot.tasks.weekly_report import WeeklyReportTask
 from bot.views.review_view import ReviewButton
 
 log = logging.getLogger("bot")
@@ -43,6 +45,8 @@ class GymBot(commands.Bot):
         await self.add_cog(VerificationCommands(self))
         await self.add_cog(MeCommands(self))
         await self.add_cog(AdminCommands(self))
+        await self.add_cog(WeeklyReportTask(self))
+        await self.add_cog(ImageCleanupTask(self))
 
     async def setup_hook(self) -> None:
         # DB에 연결할 수 없으면 바로 종료한다(컨테이너가 재시작).
@@ -51,6 +55,9 @@ class GymBot(commands.Bot):
         await self.add_all_cogs()
         # 재시작 전에 게시한 검토 메시지의 버튼도 동작하게 한다 (Persistent View)
         self.add_dynamic_items(ReviewButton)
+        # 주기 작업은 실제 실행 때만 시작한다(테스트에서 add_all_cogs만 호출할 때는 돌지 않음).
+        for name in ("WeeklyReportTask", "ImageCleanupTask"):
+            self.get_cog(name).start()  # type: ignore[union-attr]
 
         guild = discord.Object(id=self.services.settings.guild_id)
         self.tree.copy_global_to(guild=guild)

@@ -53,8 +53,9 @@ app/
   repositories/  member.py verification.py attendance.py policy.py audit.py report.py
   services/  member_service.py verification_service.py attendance_service.py
              review_service.py policy_service.py statistics_service.py
-             notification_service.py report_service.py
+             notification_service.py report_service.py image_cleanup_service.py
   image/     fetcher.py processor.py hashing.py storage.py
+scripts/     backup.sh restore.sh   # pg_dump 백업과 복원
 migrations/
 tests/
   unit/          # 시간 계산, 해시, 판정 규칙, 이미지 검증

@@ -3,6 +3,7 @@ from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.member import Member, MemberStatus
 from app.models.policy import ClubPolicy
+from app.models.report import WeeklyReport
 from app.models.verification import (
     ReviewDecision,
     ReviewerType,
@@ -24,4 +25,5 @@ __all__ = [
     "Verification",
     "VerificationReview",
     "VerificationStatus",
+    "WeeklyReport",
 ]

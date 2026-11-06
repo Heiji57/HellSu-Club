@@ -35,6 +35,16 @@ class ImageStorage:
     async def delete(self, relative: str) -> bool:
         return await asyncio.to_thread(self._unlink, self.absolute(relative))
 
+    async def usage(self) -> tuple[int, int]:
+        """(파일 수, 전체 바이트)."""
+        return await asyncio.to_thread(self._usage)
+
+    def _usage(self) -> tuple[int, int]:
+        if not self.root.exists():
+            return 0, 0
+        files = [p for p in self.root.rglob("*") if p.is_file() and not p.name.startswith(".tmp-")]
+        return len(files), sum(p.stat().st_size for p in files)
+
     @staticmethod
     def _write_atomic(path: Path, data: bytes) -> Path:
         # 임시 파일에 쓴 뒤 이름을 바꿔, 쓰다 만 파일이 남지 않게 한다.
