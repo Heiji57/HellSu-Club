@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import discord
 from discord import app_commands
 
+from app.core.exceptions import NotAMember
+
 if TYPE_CHECKING:
     from bot.main import GymBot
 
@@ -32,3 +34,19 @@ def is_admin(interaction: discord.Interaction) -> bool:
 
 def is_member(interaction: discord.Interaction) -> bool:
     return has_role(interaction.user, bot_of(interaction).services.settings.member_role_id)
+
+
+async def ensure_member(interaction: discord.Interaction, *, allow_admin: bool = False) -> None:
+    """회원 역할을 확인하고 DB 회원 정보를 맞춘다. 역할 변경 이벤트를 놓쳤어도 여기서 등록된다.
+
+    allow_admin이면 회원 역할이 없는 관리자도 통과한다(조회 전용 명령).
+    """
+    if is_member(interaction):
+        user = interaction.user
+        await bot_of(interaction).services.members.sync(
+            user.id, user.display_name, has_member_role=True
+        )
+        return
+    if allow_admin and is_admin(interaction):
+        return
+    raise NotAMember()

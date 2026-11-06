@@ -9,14 +9,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from app.core.exceptions import NotAMember, WrongChannel
+from app.core.exceptions import WrongChannel
 from app.services.verification_service import (
     MAX_CONTENT_LENGTH,
     AttachmentInfo,
     Submission,
     SubmissionResult,
 )
-from bot.checks import is_member
+from bot.checks import ensure_member
 from bot.embeds.verification import review_request_embed, submission_embed
 from bot.responses import send_private
 
@@ -49,13 +49,9 @@ class VerificationCommands(commands.Cog):
         channel_id = services.settings.verification_channel_id
         if channel_id is not None and interaction.channel_id != channel_id:
             raise WrongChannel(f"<#{channel_id}> 채널에서만 인증할 수 있습니다.")
-        if not is_member(interaction):
-            raise NotAMember()
-
         await interaction.response.defer(ephemeral=True, thinking=True)
+        await ensure_member(interaction)
         user = interaction.user
-        # 역할 변경 이벤트를 놓쳤어도 역할이 있으면 바로 등록·재활성화한다.
-        await services.members.sync(user.id, user.display_name, has_member_role=True)
 
         result = await services.verifications.submit(
             Submission(

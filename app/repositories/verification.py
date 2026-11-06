@@ -2,9 +2,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import exists, select, update
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.week import Week
 from app.models import Member, Verification, VerificationReview, VerificationStatus
 
 ACTIVE_STATUSES = (VerificationStatus.APPROVED, VerificationStatus.REVIEW_REQUIRED)
@@ -93,3 +94,49 @@ class VerificationRepository:
             .where(Verification.id == verification_id)
             .values(review_message_id=message_id)
         )
+
+    async def count_pending(self, *, week: Week, member_id: int | None = None) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Verification)
+            .where(
+                Verification.status == VerificationStatus.REVIEW_REQUIRED,
+                Verification.workout_date.between(week.start, week.end),
+            )
+        )
+        if member_id is not None:
+            stmt = stmt.where(Verification.member_id == member_id)
+        return await self._s.scalar(stmt) or 0
+
+    async def count_for_member(self, member_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Verification)
+            .where(Verification.member_id == member_id)
+        )
+        return await self._s.scalar(stmt) or 0
+
+    async def page_for_member(
+        self, member_id: int, *, offset: int, limit: int
+    ) -> Sequence[Verification]:
+        stmt = (
+            select(Verification)
+            .where(Verification.member_id == member_id)
+            .order_by(Verification.submitted_at.desc(), Verification.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return (await self._s.scalars(stmt)).all()
+
+    async def latest_reviews(self, ids: Iterable[int]) -> dict[int, VerificationReview]:
+        """인증별 마지막 판정 이력."""
+        ids = list(ids)
+        if not ids:
+            return {}
+        stmt = (
+            select(VerificationReview)
+            .where(VerificationReview.verification_id.in_(ids))
+            .distinct(VerificationReview.verification_id)
+            .order_by(VerificationReview.verification_id, VerificationReview.id.desc())
+        )
+        return {r.verification_id: r for r in await self._s.scalars(stmt)}

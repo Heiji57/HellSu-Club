@@ -8,6 +8,7 @@ from app.image.storage import ImageStorage
 from app.services.attendance_service import AttendanceService
 from app.services.member_service import MemberService
 from app.services.policy_service import PolicyService
+from app.services.statistics_service import StatisticsService
 from app.services.verification_service import VerificationService
 
 
@@ -24,6 +25,7 @@ class Services:
     policies: PolicyService
     attendance: AttendanceService
     verifications: VerificationService
+    statistics: StatisticsService
 
     @classmethod
     def build(
@@ -56,6 +58,9 @@ class Services:
                 image_max_bytes=settings.image_max_bytes,
                 phash_threshold=settings.phash_distance_threshold,
                 default_weekly_target=settings.initial_weekly_target,
+            ),
+            statistics=StatisticsService(
+                db, clock, default_weekly_target=settings.initial_weekly_target
             ),
         )
 

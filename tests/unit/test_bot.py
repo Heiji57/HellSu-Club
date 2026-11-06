@@ -11,13 +11,23 @@ from app.container import Services
 from app.core.clock import FixedClock
 from app.core.database import Database
 from app.core.exceptions import InactiveMember
+from app.core.week import Week
 from app.models import VerificationStatus
 from app.repositories.verification import VerificationRef
+from app.services.policy_service import TargetOverview
+from app.services.statistics_service import HistoryItem, HistoryPage, MemberWeek, MyWeek, WeekStats
 from app.services.verification_service import DuplicateMatch, SubmissionResult
 from bot.checks import AdminOnly
 from bot.commands.admin import format_duration
 from bot.embeds.common import format_day, progress_bar
 from bot.embeds.help import help_embed
+from bot.embeds.statistics import (
+    history_embed,
+    history_line,
+    my_week_embed,
+    ranking_embed,
+    target_embed,
+)
 from bot.embeds.verification import review_request_embed, submission_embed
 from bot.main import GymBot
 from bot.responses import DB_ERROR, GENERIC_ERROR, user_message_for
@@ -39,7 +49,7 @@ async def bot():
 class TestCommandTree:
     async def test_registers_expected_commands(self, bot):
         names = {c.name for c in bot.tree.get_commands()}
-        assert names == {"인증", "도움말", "관리"}
+        assert names == {"인증", "내출석", "내기록", "랭킹", "목표", "도움말", "관리"}
 
     async def test_verify_options(self, bot):
         payload = bot.tree.get_command("인증").to_dict(bot.tree)
@@ -162,3 +172,61 @@ class TestVerificationEmbeds:
         assert "#7 · 완전 일치 · 영희 · 11월 3일 (화) · 승인" in fields["일치한 기존 인증"]
         assert "https://discord.com/channels/1/100/999" in fields["일치한 기존 인증"]
         assert embed.image.url == "attachment://verification-42.jpg"
+
+
+class TestStatisticsEmbeds:
+    week = Week(date(2026, 11, 2))
+
+    def my_week(self, days, today=date(2026, 11, 4), target=3, pending=0) -> MyWeek:
+        return MyWeek(self.week, today, target, tuple(date(2026, 11, d) for d in days), pending)
+
+    def test_my_week_in_progress(self):
+        embed = my_week_embed(self.my_week([2, 4], pending=1))
+        assert embed.description == "목표까지 1회 남았습니다."
+        fields = {f.name: f.value for f in embed.fields}
+        assert fields["운동한 요일"] == "**월** · **수**"
+        assert fields["검토 대기"].startswith("1건")
+        assert embed.footer.text == "11월 2일 (월) ~ 11월 8일 (일)"
+
+    def test_my_week_achieved(self):
+        assert "달성" in my_week_embed(self.my_week([2, 3, 4])).description
+
+    def test_my_week_out_of_days(self):
+        # 일요일인데 2회 남음
+        embed = my_week_embed(self.my_week([2], today=date(2026, 11, 8)))
+        assert "남은 날(1일)" in embed.description
+
+    def test_history_line_for_revoked(self):
+        item = HistoryItem(
+            verification_id=9,
+            workout_date=date(2026, 11, 3),
+            submitted_at=datetime(2026, 11, 3, 0, 30, tzinfo=UTC),
+            content="스쿼트\n5세트",
+            has_image=True,
+            status=VerificationStatus.REJECTED,
+            revoked=True,
+            reason="다른 날 사진",
+        )
+        name, value = history_line(item)
+        assert name == "11월 3일 (화) · 🚫 출석 취소"
+        assert value.splitlines() == [
+            "스쿼트 5세트",
+            "📷 사진",
+            "사유: 다른 날 사진",
+            "#9 · 11월 3일 (화) 09:30 제출",
+        ]
+
+    def test_history_empty(self):
+        assert "/인증" in history_embed(HistoryPage((), 1, 0)).description
+
+    def test_ranking(self):
+        rows = (MemberWeek(1, 11, "나래", 4, 3), MemberWeek(2, 22, "가람", 1, 3))
+        embed = ranking_embed(WeekStats(self.week, 3, rows, 0), viewer_id=22)
+        assert embed.description.splitlines() == ["🏆 나래 · 4회", "▫️ **가람 (나)** · 1회"]
+        assert {f.name: f.value for f in embed.fields}["달성"] == "1 / 2명 (50%)"
+
+    def test_target_change_is_announced(self):
+        overview = TargetOverview(self.week, 3, self.week.next(), 4)
+        assert "변경 예정" in target_embed(overview).fields[1].value
+        same = TargetOverview(self.week, 3, self.week.next(), 3)
+        assert "변경 예정" not in target_embed(same).fields[1].value

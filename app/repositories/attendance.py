@@ -33,3 +33,26 @@ class AttendanceRepository:
             )
         )
         return await self._s.scalar(stmt) or 0
+
+    async def active_days_in_week(self, member_id: int, week: Week) -> list[date]:
+        stmt = (
+            select(Attendance.workout_date)
+            .where(
+                Attendance.member_id == member_id,
+                Attendance.status == AttendanceStatus.ACTIVE,
+                Attendance.workout_date.between(week.start, week.end),
+            )
+            .order_by(Attendance.workout_date)
+        )
+        return list((await self._s.scalars(stmt)).all())
+
+    async def counts_by_member_in_week(self, week: Week) -> dict[int, int]:
+        stmt = (
+            select(Attendance.member_id, func.count())
+            .where(
+                Attendance.status == AttendanceStatus.ACTIVE,
+                Attendance.workout_date.between(week.start, week.end),
+            )
+            .group_by(Attendance.member_id)
+        )
+        return {member_id: n for member_id, n in await self._s.execute(stmt)}

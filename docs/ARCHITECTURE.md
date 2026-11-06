@@ -32,8 +32,7 @@ bot/
   notify.py              # 지난 결과 알림을 모든 명령 응답에 붙이는 헬퍼
   commands/
     verification.py      # /인증
-    me.py                # /내출석 /내기록 /목표 /도움말
-    ranking.py           # /랭킹
+    me.py                # /내출석 /내기록 /랭킹 /목표 /도움말
     admin.py             # /관리 그룹
   views/
     review_view.py       # Persistent 승인/거절/상세 버튼 + 사유 모달

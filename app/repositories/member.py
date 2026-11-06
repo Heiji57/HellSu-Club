@@ -1,10 +1,11 @@
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.week import Week
 from app.models import Member, MemberStatus
 
 
@@ -48,3 +49,20 @@ class MemberRepository:
     async def count_active(self) -> int:
         stmt = select(func.count()).select_from(Member).where(Member.status == MemberStatus.ACTIVE)
         return await self._s.scalar(stmt) or 0
+
+    async def counted_in_week(self, week: Week) -> Sequence[Member]:
+        """그 주의 집계 대상: 주가 끝나는 시점에 활동 중인 회원 (REQUIREMENTS 7).
+
+        joined_at < 주 종료 AND (deactivated_at IS NULL OR deactivated_at >= 주 종료).
+        주중에 비활성화된 회원은 빠지고, 주중에 가입한 회원은 들어간다.
+        """
+        _, end = week.bounds_utc()
+        stmt = (
+            select(Member)
+            .where(
+                Member.joined_at < end,
+                or_(Member.deactivated_at.is_(None), Member.deactivated_at >= end),
+            )
+            .order_by(Member.display_name, Member.id)
+        )
+        return (await self._s.scalars(stmt)).all()

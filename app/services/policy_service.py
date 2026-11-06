@@ -1,10 +1,11 @@
 """주간 목표 정책.
 
-Phase 2에서는 인증 결과에 이번 주 진행 현황을 보여주기 위한 조회와 초기 시드만 둔다.
-목표 변경(이번 주/다음 주 적용)은 Phase 4에서 추가한다.
+목표 조회, 초기 시드, /목표 안내를 제공한다.
+목표 변경(이번 주/다음 주 적용)은 Phase 4의 관리자 명령에서 추가한다.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,18 @@ from app.core.week import Week, to_kst_date
 from app.repositories.policy import PolicyRepository
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TargetOverview:
+    this_week: Week
+    this_target: int
+    next_week: Week
+    next_target: int
+
+    @property
+    def changes_next_week(self) -> bool:
+        return self.next_target != self.this_target
 
 
 async def target_for_week(s: AsyncSession, week: Week, default: int) -> int:
@@ -50,6 +63,15 @@ class PolicyService:
     async def target_for(self, week: Week) -> int:
         async with self._db.transaction() as s:
             return await target_for_week(s, week, self._initial)
+
+    async def overview(self) -> TargetOverview:
+        """이번 주 목표와 (예약된 변경이 있다면 반영한) 다음 주 목표."""
+        this_week = Week.of(self.today())
+        next_week = this_week.next()
+        async with self._db.transaction() as s:
+            this_target = await target_for_week(s, this_week, self._initial)
+            next_target = await target_for_week(s, next_week, self._initial)
+        return TargetOverview(this_week, this_target, next_week, next_target)
 
     def today(self) -> date:
         return to_kst_date(self._clock.now())

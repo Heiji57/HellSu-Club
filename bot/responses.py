@@ -36,17 +36,20 @@ async def send_private(
     *,
     embed: discord.Embed | None = None,
     view: discord.ui.View | None = None,
-) -> None:
-    """본인에게만 보이는 메시지. 이미 응답(defer 포함)했다면 followup으로 보낸다."""
+) -> discord.Message | None:
+    """본인에게만 보이는 메시지. 이미 응답(defer 포함)했다면 followup으로 보낸다.
+
+    followup으로 보냈다면 나중에 수정할 수 있도록 보낸 메시지를 반환한다.
+    """
     kwargs: dict = {"content": content, "ephemeral": True}
     if embed is not None:
         kwargs["embed"] = embed
     if view is not None:
         kwargs["view"] = view
     if interaction.response.is_done():
-        await interaction.followup.send(**kwargs)
-    else:
-        await interaction.response.send_message(**kwargs)
+        return await interaction.followup.send(**kwargs, wait=True)
+    await interaction.response.send_message(**kwargs)
+    return None
 
 
 class GymCommandTree(app_commands.CommandTree):

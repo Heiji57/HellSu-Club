@@ -7,6 +7,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import asyncpg
 import pytest
@@ -17,8 +18,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
+from app.container import Services
 from app.core.clock import FixedClock
 from app.core.database import Database
+from tests.fakes import FakeChannel, FakeFetcher, make_settings
 
 
 class _TestSettings(BaseSettings):
@@ -93,3 +96,29 @@ async def db(migrated_url: str) -> AsyncIterator[Database]:
 def clock() -> FixedClock:
     # 2026-11-04(수) 12:00 KST
     return FixedClock(datetime(2026, 11, 4, 3, 0, tzinfo=UTC))
+
+
+ADMIN_CHANNEL_ID = 100
+
+
+@pytest.fixture
+def bot_env(db, clock, tmp_path, monkeypatch):
+    """명령 핸들러 테스트용 봇. 역할은 env.member / env.admin으로 바꾼다."""
+    from bot.main import GymBot  # discord.py import 비용을 이 픽스처를 쓰는 테스트로 한정
+
+    settings = make_settings().model_copy(
+        update={"admin_channel_id": ADMIN_CHANNEL_ID, "image_dir": str(tmp_path / "images")}
+    )
+    fetcher = FakeFetcher()
+    bot = GymBot(Services.build(settings, db, clock, fetcher=fetcher))
+    channel = FakeChannel()
+    env = SimpleNamespace(
+        bot=bot, db=db, clock=clock, fetcher=fetcher, channel=channel, member=True, admin=False
+    )
+    monkeypatch.setattr(
+        bot, "get_channel", lambda cid: channel if cid == ADMIN_CHANNEL_ID else None
+    )
+    monkeypatch.setattr("bot.checks.is_member", lambda i: env.member)
+    monkeypatch.setattr("bot.checks.is_admin", lambda i: env.admin)
+    monkeypatch.setattr("bot.commands.me.is_admin", lambda i: env.admin)
+    return env
